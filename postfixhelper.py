@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import config
 import re
 import math
 import sys
 import argparse
 import collections
 import help
+import config
 
 try:
     del FILE_CONFIG
@@ -17,7 +17,7 @@ try:
 except:
     pass
 
-CONFIG_FILE = './tests/testdata/testconfig.yaml'
+CONFIG_FILE = 'config.yaml'
 CONFIG = None
 FILE_CONFIG = None
 
