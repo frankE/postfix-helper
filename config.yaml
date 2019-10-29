@@ -1,3 +1,4 @@
+postmap: postmap
 filesystem:
   pathes:
     default: /etc/postfix

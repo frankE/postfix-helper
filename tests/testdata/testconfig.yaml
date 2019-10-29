@@ -1,3 +1,4 @@
+postmap: ls
 filesystem:
   files:
     virtual-alias: ./virtual-alias

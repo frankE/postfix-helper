@@ -4,7 +4,9 @@ import math
 import sys
 import argparse
 import os
+import shutil
 import collections
+import subprocess
 
 if os.path.islink(__file__):
     sys.path.append(os.path.dirname(os.path.realpath(__file__)))
@@ -21,9 +23,17 @@ try:
 except:
     pass
 
+DEFAULT_POSTMAP = 'postmap'
 CONFIG_FILE = 'config.yaml'
 CONFIG = None
 FILE_CONFIG = None
+
+
+def get_config_path():
+    if not os.path.isabs(CONFIG_FILE):
+        path = os.path.dirname(os.path.realpath(__file__))
+        return os.path.join(path, CONFIG_FILE)
+    return CONFIG_FILE
 
 
 def load_config(config_file=None):
@@ -33,7 +43,7 @@ def load_config(config_file=None):
                            (CONFIG.filename, config_file))
     if CONFIG is None:
         if config_file is None:
-            config_file = CONFIG_FILE
+            config_file = get_config_path()
         CONFIG = config.Config(filename=config_file)
     return CONFIG
 
@@ -369,7 +379,34 @@ class App(object):
                 out.append(alias.alias + ' ' * alias_spaces + inbox + ' ' * inbox_spaces + sender)
         return "\n".join(out)
 
+    @staticmethod
+    def _getpostmap():
+        c = load_config()
+        postmap = c.get('postmap')
+        if postmap is None:
+            postmap = DEFAULT_POSTMAP
+        return postmap
+
+    @staticmethod
+    def _which(cmd):
+        path = shutil.which(cmd)
+        if path is None:
+            raise RuntimeError("Command %s couldn't be found. No changes have been written." % cmd)
+
+    def _exec(self, args=[], stdin=None, stdout=None, stderr=None):
+        with subprocess.Popen(args, stdin=stdin, stdout=stdout, stderr=stderr) as p:
+            p.communicate()
+            return p
+
+    def _exec_postmap(self, file):
+        args = [self._getpostmap(), file]
+        p = self._exec(args, stdout=subprocess.PIPE)
+        if p.returncode != 0:
+            raise RuntimeError("Return code from %s was %s. Unable to generate %s.db." %
+                               (self._getpostmap(), p.returncode, file))
+
     def _save_alias_tables(self, args):
+        self._which(self._getpostmap())
         virtual_alias = self._alias_config.serialize(True, False)
         sender_login_maps = self._alias_config.serialize(False, True)
         if not args.save:
@@ -378,8 +415,10 @@ class App(object):
             fc = load_file_config()
             with open(fc['virtual-alias'], 'w') as file:
                 file.write(virtual_alias)
+                self._exec_postmap(fc['virtual-alias'])
             with open(fc['sender-login-maps'], 'w') as file:
                 file.write(sender_login_maps)
+                self._exec_postmap(fc['sender-login-maps'])
             return 'Sucessfully saved.'
 
     def add_alias(self, args):
@@ -445,5 +484,5 @@ if __name__ == "__main__":
     try:
         print(action(args))
     except Exception as e:
-        print(e.args[0], file=sys.stderr)
+        print(e, file=sys.stderr)
 
