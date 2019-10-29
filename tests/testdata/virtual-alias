@@ -1,0 +1,12 @@
+# Another comment
+
+#== Entries for value 'inbox@localdomain'
+alias@localdomain         inbox@localdomain
+
+#== Entries for value 'testsender1'
+testalias1                testsender1
+testalias2                testsender1
+testalias3                testsender1
+
+#== Entries for value 'testsender'
+testalias                 testsender

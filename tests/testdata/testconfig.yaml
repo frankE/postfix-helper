@@ -1,0 +1,7 @@
+filesystem:
+  files:
+    virtual-alias: ./virtual-alias
+    sender-login-maps: ./sender-login-maps
+    virtual-mailbox-domains: ./virtual-mailbox-domains
+    virtual-mailbox-users: ./virtual-mailbox-users
+

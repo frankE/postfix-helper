@@ -1,0 +1,9 @@
+filesystem:
+  files:
+    virtual-alias: empty_virtual-alias
+    sender-login-maps: empty_sender-login-maps
+    virtual-mailbox-domains: empty_virtual-mailbox-domains
+    virtual-mailbox-users: empty_virtual-mailbox-users
+  pathes:
+    default: /tmp
+
