@@ -3,9 +3,13 @@ import re
 import math
 import sys
 import argparse
+import os
 import collections
-import help
+
+if os.path.islink(__file__):
+    sys.path.append(os.path.dirname(os.path.realpath(__file__)))
 import config
+import help
 
 try:
     del FILE_CONFIG
