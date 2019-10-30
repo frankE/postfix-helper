@@ -6,7 +6,8 @@ class Help(object):
     }
     comment_out_option = {
         'name': '--comment-out',
-        'help': 'Marks the entry as comment.'
+        'help': 'Marks the entry as comment.',
+        'action': 'store_true',
     }
     comment_option = {
         'name': '--comment',

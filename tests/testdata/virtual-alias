@@ -4,9 +4,9 @@
 alias@localdomain         inbox@localdomain
 
 #== Entries for value 'testsender1'
-testalias1                testsender1
-testalias2                testsender1
-testalias3                testsender1
+testalias1                test1
+testalias2                test1
+testalias3                test1
 
 #== Entries for value 'testsender'
 testalias                 testsender

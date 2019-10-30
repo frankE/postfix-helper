@@ -64,9 +64,10 @@ class PostfixTableParser(object):
     singleton_instance = None
 
     lines = [
-        ('ENTRY', r'^(?P<K>[^#\s]\S+)(?P<MULTI>([ \t]*\n+)*)[ \t]+(?P<V>\S+)\s*$'),
-        ('SYS_COMMENT', r'^[ \t]*#==(.*)$'),
-        ('COMMENT', r'^[ \t]*#(?P<C>.*)$'),
+        ('ENTRY', r'^(?P<K>[^#\s]\S+)(?P<MULTI>([ \t]*\n+)*)[ \t]+(?P<V>\S+)[ \t]*$'),
+        ('DELETED', r'^[ \t]*#--[ \t]+(?P<DK>\S+)[ \t]+(?P<DV>\S+)[ \t]*$'),
+        ('SYS_COMMENT', r'^[ \t]*#==([^\n]*)$'),
+        ('COMMENT', r'^[ \t]*#(?P<C>.*)[^\n]*$'),
         ('EMPTY', r'^[ \t]*$'),
         ('ERROR', r'^.+$')
     ]
@@ -94,16 +95,20 @@ class PostfixTableParser(object):
                 if multiline is not None:
                     line += multiline.count('\n')
                 if table:
-                    table[key] = [value, comment.copy(), line]
+                    table[key] = TableEntry(value, comment.copy(), line)
                 else:
-                    table['#'] = [None, comment.copy(), 0]
-                    table[key] = [value, [], line]
+                    table[key] = TableEntry(value, [], line)
                 comment = []
+            elif kind == 'DELETED':
+                key = values['DK']
+                value = values['DV']
+                if table:
+                    table[key] = TableEntry(value, comment.copy(), line, True)
             elif kind == 'COMMENT':
                 comment.append(values['C'].strip())
             elif kind == 'EMPTY':
                 if not table:
-                    table['#'] = [None, comment.copy(), 0]
+                    table['#'] = TableEntry(None, comment.copy(), 0)
                     comment = []
             elif kind == 'SYS_COMMENT':
                 pass
@@ -112,50 +117,51 @@ class PostfixTableParser(object):
             else:
                 raise ParserError("Parser error: Unkown kind '%s' in match '%s'" % (kind, match.group()))
         if comment:
-            table[None] = [None, comment, line]
+            table[None] = TableEntry(None, comment, line)
         return table
 
 
 class PFTableSerializer(object):
     @staticmethod
-    def _order_by_line_no(data):
-        s = [{'key': k, 'value': v} for k, v in sorted(data.items(), key=lambda k: k[1][2])]
+    def _sort_by_line_no(data):
+        s = [{'key': k, 'entry': v} for k, v in sorted(data.items(), key=lambda t: t[1].line_no)]
         return s
 
     @staticmethod
     def serialize(data, original_order=False, print_system_comments=True):
         out = []
-        comments = data.get('#', [None, []])[1]
+        comments = data.get('#', TableEntry()).comment
         for c in comments:
             out.append('# ' + c)
         if comments:
             out.append('')
         if not original_order:
-            entries = PFTableSerializer._order_by_line_no(data)
-            entries.sort(key=lambda v: v['value'][2])
+            entries = PFTableSerializer._sort_by_line_no(data)
+            entries.sort(key=lambda v: v['entry'].value if v['entry'].value else '')
         else:
-            entries = PFTableSerializer._order_by_line_no(data)
+            entries = PFTableSerializer._sort_by_line_no(data)
         max_len = 0
         for e in entries:
-            max_len = len(e['key']) if len(e['key']) > max_len else max_len
-        min_spaces = round(8 + (max_len/8 - math.floor(max_len/8)) * 8)
+            key = '#-- ' + e['key'] if e['entry'].deleted else e['key']
+            max_len = max(len(key), max_len)
+        min_spaces = round(8 + (1-(max_len/8 - math.floor(max_len/8))) * 8)
         old_entry = ''
         for e in entries:
-            value = e['value']
-            key = e['key']
+            entry = e['entry']
+            key = '#-- ' + e['key'] if e['entry'].deleted else e['key']
             if key is not None and key != '#':
-                if print_system_comments and not original_order and old_entry != value[0]:
-                    old_entry = value[0]
+                if print_system_comments and not original_order and old_entry != entry.value:
+                    old_entry = entry.value
                     if len(out) > 0 and out[-1]:
                         out.append('')
                     out.append("#== Entries for value '%s'" % old_entry)
 
                 spaces = min_spaces + max_len - len(key)
-                for comment in value[1]:
+                for comment in entry.comment:
                     out.append('# ' + comment)
-                if value[0] is not None:
-                    out.append((key + ' ' * spaces + value[0]))
-        comments = data.get(None, [None, []])[1]
+                if entry.value is not None:
+                    out.append((key + ' ' * spaces + entry.value))
+        comments = data.get(None, TableEntry()).comment
         for c in comments:
             out.append('# ' + c)
         out.append('')
@@ -239,18 +245,45 @@ class PostfixTable(Table):
     serializer = PFTableSerializer
     table_singleton = True
 
+    def del_entry(self, key, comment_out=False):
+        if key in self:
+            if comment_out:
+                self[key].deleted = True
+            else:
+                del self[key]
+
+
+class TableEntry(object):
+    def __init__(self, value=None, comment=None, line_no=0, deleted=False):
+        if comment is None:
+            comment = []
+        self.value = value
+        self.comment = comment
+        self.line_no = line_no
+        self.deleted = deleted
+
+    def __eq__(self, other):
+        is_class = isinstance(other, TableEntry)
+        return is_class and self.value == other.value and self.comment == other.comment \
+               and self.line_no == other.line_no and self.deleted == other.deleted
+
+    def __repr__(self):
+        return "Value: '%s', Comment: '%s', Line No.: '%s', Deleted: '%s'" % \
+               (self.value, self.comment, self.line_no, self.deleted)
+
+    def get_value(self):
+        return '# ' + self.value if self.deleted else self.value
+
 
 class DovecotPasswordFile(dict):
     pass
 
 
 class Alias(object):
-    def __init__(self, alias, sender, inbox, sender_comment, inbox_comment):
+    def __init__(self, alias, sender, inbox):
         self.alias = alias
         self.sender = sender
-        self.sender_comment = sender_comment
         self.inbox = inbox
-        self.inbox_comment = inbox_comment
 
 
 class PFAliasConfig(object):
@@ -265,58 +298,61 @@ class PFAliasConfig(object):
             raise ConfigError("An alias for %s already exists in 'sender-login-maps'." % alias)
         if user not in self._users:
             raise ConfigError("User '%s' does not exist." % user)
+        if self._users[user].deleted:
+            raise ConfigError("User '%s' does not exist." % user)
 
         if comment:
             if isinstance(comment, str):
                 comment = comment.split('\n')
 
         if virtual_alias:
-            self._virtual_alias[alias] = [user, comment, sys.maxsize]
+            self._virtual_alias[alias] = TableEntry(user, comment, sys.maxsize)
         if sender_login_maps:
-            self._sender_login_maps[alias] = [user, comment, sys.maxsize]
+            self._sender_login_maps[alias] = TableEntry(user, comment, sys.maxsize)
 
-    def delete_alias(self, alias, virtual_alias=True, sender_login_maps=True):
+    def delete_alias(self, alias, comment_out=False, virtual_alias=True, sender_login_maps=True):
         if virtual_alias:
-            try:
-                del self._virtual_alias[alias]
-            except KeyError:
-                pass
+            self._virtual_alias.del_entry(alias, comment_out)
         if sender_login_maps:
-            try:
-                del self._sender_login_maps[alias]
-            except KeyError:
-                pass
+            self._sender_login_maps.del_entry(alias, comment_out)
 
     def get_alias(self, alias):
-        alias_data = self._virtual_alias.get(alias, [None, []])
-        sender_data = self._sender_login_maps.get(alias, [None, []])
-        data = Alias(alias, sender_data[0], alias_data[0], sender_data[1], alias_data[1])
+        alias_data = self._virtual_alias.get(alias, None)
+        sender_data = self._sender_login_maps.get(alias, None)
+        data = Alias(alias, alias_data, sender_data)
         return data
 
-    def get_alias_list(self):
+    def get_alias_list(self, sort_by_inbox=False, sort_by_sender=False):
         aliases = []
         for alias in self._virtual_alias:
             aliases.append(self.get_alias(alias))
         for alias in self._sender_login_maps:
             if alias not in self._virtual_alias:
                 aliases.append(self.get_alias(alias))
+
+        if sort_by_sender:
+            aliases.sort(key=lambda a: a.sender.value if a.sender and a.sender.value else '')
+
+        if sort_by_inbox:
+            aliases.sort(key=lambda a: a.inbox.value if a.inbox and a.inbox.value else '')
+
         return aliases
 
-    def del_virtual_alias_user(self, user):
+    def del_virtual_alias_user(self, user, comment_out=False):
         aliases = []
         for a, v in self._virtual_alias.items():
-            if v[0] == user:
+            if v.value == user:
                 aliases.append(a)
         for a in aliases:
-            del self._virtual_alias[a]
+            self._virtual_alias.del_entry(a, comment_out)
 
-    def del_sender_login_maps_user(self, user):
+    def del_sender_login_maps_user(self, user, comment_out=False):
         aliases = []
         for a, v in self._sender_login_maps.items():
-            if v[0] == user:
+            if v.value == user:
                 aliases.append(a)
         for a in aliases:
-            del self._sender_login_maps[a]
+            self._sender_login_maps.del_entry(a, comment_out)
 
     def serialize(self, virtual_alias=True, sender_login_maps=True):
         out = ''
@@ -345,35 +381,36 @@ class App(object):
             return self._alias_config.serialize()
 
         out = []
-        aliases = self._alias_config.get_alias_list()
+        aliases = self._alias_config.get_alias_list(True, True)
         max_alias_len = 6
         max_inbox_len = 6
         max_sender_len = 7
+
         for alias in aliases:
             max_alias_len = max(len(alias.alias), max_alias_len)
-            if alias.inbox:
-                max_inbox_len = max(len(alias.inbox), max_inbox_len)
-            if alias.sender:
-                max_sender_len = max(len(alias.sender), max_sender_len)
+            if alias.inbox and alias.inbox.value:
+                max_inbox_len = max(len(alias.inbox.get_value()), max_inbox_len)
+            if alias.sender and alias.sender.value:
+                max_sender_len = max(len(alias.sender.get_value()), max_sender_len)
 
-        min_alias_spaces = round(4 + (max_alias_len/4 - math.floor(max_alias_len/4)) * 4)
-        min_inbox_spaces = round(4 + (max_inbox_len/4 - math.floor(max_inbox_len/4)) * 4)
+        min_alias_spaces = round(4 + (1 - (max_alias_len/4 - math.floor(max_alias_len/4))) * 4)
+        min_inbox_spaces = round(4 + (1 - (max_inbox_len/4 - math.floor(max_inbox_len/4))) * 4)
         alias_spaces = min_alias_spaces + max_alias_len - 6
         inbox_spaces = min_inbox_spaces + max_inbox_len - 6
         out.append('Alias:' + ' ' * alias_spaces + 'Inbox:' + ' ' * inbox_spaces + 'Sender:')
         out.append('-' * (max_inbox_len + min_inbox_spaces + max_alias_len + min_alias_spaces + max_sender_len))
 
         for alias in aliases:
-            if alias.alias != '#':
+            if alias.alias != '#' and alias.alias is not None:
                 alias_spaces = min_alias_spaces + max_alias_len - len(alias.alias)
-                if alias.inbox:
-                    inbox = alias.inbox
+                if alias.inbox.value:
+                    inbox = alias.inbox.get_value()
                     inbox_spaces = min_inbox_spaces + max_inbox_len - len(inbox)
                 else:
                     inbox = ''
                     inbox_spaces = min_inbox_spaces + max_inbox_len
-                if alias.sender:
-                    sender = alias.sender
+                if alias.sender.value:
+                    sender = alias.sender.get_value()
                 else:
                     sender = ''
                 out.append(alias.alias + ' ' * alias_spaces + inbox + ' ' * inbox_spaces + sender)
@@ -393,7 +430,7 @@ class App(object):
         if path is None:
             raise RuntimeError("Command %s couldn't be found. No changes have been written." % cmd)
 
-    def _exec(self, args=[], stdin=None, stdout=None, stderr=None):
+    def _exec(self, args, stdin=None, stdout=None, stderr=None):
         with subprocess.Popen(args, stdin=stdin, stdout=stdout, stderr=stderr) as p:
             p.communicate()
             return p
@@ -430,7 +467,7 @@ class App(object):
         return self._save_alias_tables(args)
 
     def delete_alias(self, args):
-        self._alias_config.delete_alias(args.alias)
+        self._alias_config.delete_alias(args.alias, args.comment_out)
         return self._save_alias_tables(args)
 
     def delete_alias_user(self, args):
@@ -439,7 +476,7 @@ class App(object):
         return self._save_alias_tables(args)
 
 
-def init_parser(parser, obj):
+def init_args_parser(parser, obj):
     parser.set_defaults(**obj.get('defaults', {}))
     for a in obj.get('arguments', []):
         a = a.copy()
@@ -452,26 +489,26 @@ def init_parser(parser, obj):
         del a['name']
         parser.add_argument(name, **a)
 
-    parser_from_list(parser, obj.get('commands', []), obj.get('commands-title', 'commands'),
-                     obj.get('commands-help', ''))
+    args_parser_from_list(parser, obj.get('commands', []), obj.get('commands-title', 'commands'),
+                          obj.get('commands-help', ''))
 
 
-def parser_from_list(parser, objects, kind, helptext=''):
+def args_parser_from_list(parser, objects, kind, helptext=''):
     if objects:
         sub = parser.add_subparsers(title=kind, required=True, dest=kind, help=helptext)
         for o in objects:
             p = sub.add_parser(o['name'], help=o['help'])
-            init_parser(p, o)
+            init_args_parser(p, o)
 
 
-def create_parser(cls):
+def create_args_parser(cls):
     parser = argparse.ArgumentParser()
-    init_parser(parser, cls.main)
+    init_args_parser(parser, cls.main)
     return parser
 
 
 def parse_args(cls, argv):
-    parser = create_parser(cls)
+    parser = create_args_parser(cls)
     return parser.parse_args(argv[1:])
 
 
