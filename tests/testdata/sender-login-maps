@@ -4,7 +4,6 @@
 alias@localdomain         sender@localdomain
 
 #== Entries for value 'testsender1'
-testalias1                testsender1
 testalias2                testsender1
 testalias3                testsender1
 
