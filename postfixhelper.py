@@ -403,13 +403,13 @@ class App(object):
         for alias in aliases:
             if alias.alias != '#' and alias.alias is not None:
                 alias_spaces = min_alias_spaces + max_alias_len - len(alias.alias)
-                if alias.inbox.value:
+                if alias.inbox and alias.inbox.value:
                     inbox = alias.inbox.get_value()
                     inbox_spaces = min_inbox_spaces + max_inbox_len - len(inbox)
                 else:
                     inbox = ''
                     inbox_spaces = min_inbox_spaces + max_inbox_len
-                if alias.sender.value:
+                if alias.sender and alias.sender.value:
                     sender = alias.sender.get_value()
                 else:
                     sender = ''
@@ -433,6 +433,7 @@ class App(object):
     def _exec(self, args, stdin=None, stdout=None, stderr=None):
         with subprocess.Popen(args, stdin=stdin, stdout=stdout, stderr=stderr) as p:
             p.communicate()
+            print("Executed: %s" % " ".join(args))
             return p
 
     def _exec_postmap(self, file):
@@ -452,11 +453,11 @@ class App(object):
             fc = load_file_config()
             with open(fc['virtual-alias'], 'w') as file:
                 file.write(virtual_alias)
-                self._exec_postmap(fc['virtual-alias'])
             with open(fc['sender-login-maps'], 'w') as file:
                 file.write(sender_login_maps)
-                self._exec_postmap(fc['sender-login-maps'])
-            return 'Sucessfully saved.'
+            self._exec_postmap(fc['virtual-alias'])
+            self._exec_postmap(fc['sender-login-maps'])
+            return 'Successfully saved.'
 
     def add_alias(self, args):
         if hasattr(args, 'comment'):
@@ -521,5 +522,5 @@ if __name__ == "__main__":
     try:
         print(action(args))
     except Exception as e:
-        print(e, file=sys.stderr)
+        print(e.with_traceback(), file=sys.stderr)
 
